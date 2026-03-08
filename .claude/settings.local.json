@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/seunghoonyang/Documents/vibecode/**)",
+      "Bash(npx create-next-app@14 financial-app --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-git --use-npm)",
+      "Bash(cp -r /Users/seunghoonyang/Documents/vibecode/financial-app/* /Users/seunghoonyang/Documents/vibecode/financial-app/.* /Users/seunghoonyang/Documents/vibecode/financial/)",
+      "Bash(rm -rf /Users/seunghoonyang/Documents/vibecode/financial-app)",
+      "Bash(npm install recharts)",
+      "Bash(npm run build)",
+      "Bash(npm install)"
+    ]
+  }
+}
