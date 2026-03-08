@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchPortfolioData } from '@/lib/google-sheets';
 
-export const revalidate = 300; // 5분 캐싱
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
