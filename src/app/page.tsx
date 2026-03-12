@@ -1,5 +1,7 @@
 'use client';
 
+import { useMemo } from 'react';
+import Link from 'next/link';
 import SummaryCard from '@/components/SummaryCard';
 import DonutChart from '@/components/charts/DonutChart';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
@@ -10,9 +12,11 @@ import {
   calcCategorySummary, calcAssetClassSummary, formatKRW, formatFullKRW,
   formatPercent, filterByCategory, getInvestmentAssets,
 } from '@/lib/utils';
+import { diagnoseMarket, MARKET_DATE } from '@/lib/market-diagnosis';
 
 export default function Dashboard() {
   const { data, loading, error, refresh } = usePortfolio();
+  const diagnosis = useMemo(() => diagnoseMarket(), []);
 
   if (loading) return <LoadingSkeleton />;
 
@@ -80,6 +84,50 @@ export default function Dashboard() {
         <DonutChart data={categorySummary} title="대범주별 비중 (전체)" />
         <DonutChart data={assetClassSummary} title="자산대범주별 비중 (투자 자산)" />
       </div>
+
+      {/* 전략 & 리밸런싱 요약 */}
+      <Link href="/strategy" className="block group">
+        <div className={`rounded-xl p-5 border-2 transition-all group-hover:shadow-lg group-hover:shadow-yellow-500/10 ${
+          diagnosis.rebalanceUrgency === 'high'
+            ? 'bg-red-500/10 border-red-500/40 group-hover:border-red-400'
+            : diagnosis.rebalanceUrgency === 'medium'
+            ? 'bg-yellow-500/10 border-yellow-500/40 group-hover:border-yellow-400'
+            : 'bg-green-500/10 border-green-500/40 group-hover:border-green-400'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                diagnosis.rebalanceUrgency === 'high' ? 'bg-red-500/20' :
+                diagnosis.rebalanceUrgency === 'medium' ? 'bg-yellow-500/20' : 'bg-green-500/20'
+              }`}>
+                <span className="text-xl">
+                  {diagnosis.rebalanceUrgency === 'high' ? '🚨' : diagnosis.rebalanceUrgency === 'medium' ? '⚠️' : '✅'}
+                </span>
+              </div>
+              <div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm font-semibold ${
+                    diagnosis.rebalanceUrgency === 'high' ? 'text-red-400' :
+                    diagnosis.rebalanceUrgency === 'medium' ? 'text-yellow-400' : 'text-green-400'
+                  }`}>
+                    {diagnosis.rebalanceUrgency === 'high' ? '월간 리밸런싱' :
+                     diagnosis.rebalanceUrgency === 'medium' ? '분기 리밸런싱' : '연간 리밸런싱'}
+                  </span>
+                  <span className="text-gray-500 text-xs">{MARKET_DATE} 기준</span>
+                </div>
+                <p className="text-white text-sm mt-0.5">
+                  추천: <span className="font-medium">{diagnosis.recommendedName}</span>
+                  <span className="text-gray-400 ml-2 text-xs">신뢰도 {diagnosis.confidence}%</span>
+                </p>
+                <p className="text-gray-400 text-xs mt-1 hidden sm:block">{diagnosis.rebalanceNote}</p>
+              </div>
+            </div>
+            <div className="text-gray-500 group-hover:text-white transition-colors text-sm">
+              전략 상세 →
+            </div>
+          </div>
+        </div>
+      </Link>
 
       {/* 부채 & 지분 요약 */}
       {data.debtSummary && (
