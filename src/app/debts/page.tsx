@@ -1,15 +1,22 @@
 'use client';
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { usePortfolio } from '@/lib/usePortfolio';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
 import RefreshButton from '@/components/RefreshButton';
 import { formatKRW, formatFullKRW, calcTotalValue } from '@/lib/utils';
+import { calcDebtProjections, calcEarlyPayoffScenarios, calcRepaymentOrder } from '@/lib/debt-analysis';
+import { useMemo } from 'react';
 
 const DEBT_COLORS = ['#EF4444', '#F59E0B', '#3B82F6'];
 
 export default function DebtsPage() {
   const { data, loading, refresh } = usePortfolio();
+
+  // 부채 상환 프로젝션 & 시나리오 분석 (hooks must be before early return)
+  const projections = useMemo(() => calcDebtProjections(data.debts, data.debtPayments), [data.debts, data.debtPayments]);
+  const scenarios = useMemo(() => calcEarlyPayoffScenarios(data.debts, projections), [data.debts, projections]);
+  const repaymentOrder = useMemo(() => calcRepaymentOrder(data.debts, projections), [data.debts, projections]);
 
   if (loading) return <LoadingSkeleton />;
 
@@ -240,6 +247,184 @@ export default function DebtsPage() {
           </table>
         </div>
       )}
+
+      {/* ─── 상환 완납 예상 시점 ─── */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto">
+        <div className="p-5 border-b border-gray-700">
+          <h3 className="text-white font-semibold">대출별 완납 예상 시점</h3>
+          <p className="text-gray-400 text-xs mt-1">현재 상환 페이스 기준 프로젝션</p>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-700 text-gray-400">
+              <th className="text-center p-4">순서</th>
+              <th className="text-left p-4">대출명</th>
+              <th className="text-right p-4">잔액</th>
+              <th className="text-right p-4">월 상환액</th>
+              <th className="text-right p-4">원금/이자</th>
+              <th className="text-right p-4">남은 개월</th>
+              <th className="text-right p-4">예상 완납</th>
+              <th className="text-right p-4">남은 총 이자</th>
+            </tr>
+          </thead>
+          <tbody>
+            {repaymentOrder.map((item, idx) => {
+              const proj = projections.find(p => p.name === item.name);
+              return (
+                <tr key={item.name} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                  <td className="p-4 text-center">
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                      idx === 0 ? 'bg-green-500/20 text-green-400' :
+                      idx === 1 ? 'bg-blue-500/20 text-blue-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>{idx + 1}</span>
+                  </td>
+                  <td className="p-4 text-white font-medium">{item.name}</td>
+                  <td className="p-4 text-right text-red-400">{formatKRW(item.remaining)}</td>
+                  <td className="p-4 text-right text-white">{formatKRW(item.monthlyPayment)}</td>
+                  <td className="p-4 text-right text-gray-400 text-xs">
+                    {proj && `${formatKRW(proj.monthlyPrincipal)} / ${formatKRW(proj.monthlyInterest)}`}
+                  </td>
+                  <td className="p-4 text-right text-white">
+                    {proj && proj.remainingMonths < 999
+                      ? `${Math.floor(proj.remainingMonths / 12)}년 ${proj.remainingMonths % 12}개월`
+                      : '-'}
+                  </td>
+                  <td className="p-4 text-right text-blue-400 font-medium">{item.completionDate}</td>
+                  <td className="p-4 text-right text-yellow-400">
+                    {proj ? formatKRW(proj.totalInterestRemaining) : '-'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-gray-600 bg-gray-700/30">
+              <td colSpan={2} className="p-4 text-white font-semibold">합계</td>
+              <td className="p-4 text-right text-red-400 font-semibold">{formatKRW(projections.reduce((s, p) => s + p.remaining, 0))}</td>
+              <td className="p-4 text-right text-white font-semibold">{formatKRW(projections.reduce((s, p) => s + p.monthlyPayment, 0))}</td>
+              <td className="p-4"></td>
+              <td className="p-4"></td>
+              <td className="p-4"></td>
+              <td className="p-4 text-right text-yellow-400 font-semibold">{formatKRW(projections.reduce((s, p) => s + p.totalInterestRemaining, 0))}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* ─── 조기 상환 시나리오 비교 ─── */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700">
+        <div className="p-5 border-b border-gray-700">
+          <h3 className="text-white font-semibold">빨리 갚으면 얼마나 유리할까?</h3>
+          <p className="text-gray-400 text-xs mt-1">추가 상환 시 절약되는 이자와 단축 기간 비교 (우선순위 높은 대출부터 추가 상환)</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
+          {scenarios.map((s, i) => {
+            const isBase = i === 0;
+            return (
+              <div
+                key={s.label}
+                className={`rounded-xl p-4 border ${
+                  isBase ? 'border-gray-600 bg-gray-700/30' : 'border-emerald-500/30 bg-emerald-500/5'
+                }`}
+              >
+                <p className={`text-sm font-semibold ${isBase ? 'text-gray-300' : 'text-emerald-400'}`}>
+                  {s.label}
+                </p>
+                <p className="text-gray-400 text-xs mt-1">{s.description}</p>
+                <div className="mt-3 space-y-2">
+                  <div>
+                    <p className="text-gray-500 text-xs">총 이자</p>
+                    <p className="text-white font-bold">{formatKRW(s.totalInterest)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">완납 시점</p>
+                    <p className="text-white font-medium text-sm">{s.completionDate}</p>
+                  </div>
+                  {!isBase && (
+                    <>
+                      <div className="pt-2 border-t border-gray-600">
+                        <p className="text-gray-500 text-xs">이자 절약</p>
+                        <p className="text-emerald-400 font-bold">{formatKRW(s.monthlySaved)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">기간 단축</p>
+                        <p className="text-emerald-400 font-medium text-sm">
+                          {s.timeSavedMonths > 0
+                            ? `${Math.floor(s.timeSavedMonths / 12)}년 ${s.timeSavedMonths % 12}개월`
+                            : '-'}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 시나리오별 이자 비교 바 차트 */}
+        <div className="px-5 pb-5">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={scenarios.map(s => ({ name: s.label, 총이자: s.totalInterest, 절약: s.monthlySaved }))}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#9CA3AF" tick={{ fontSize: 11 }} tickFormatter={(v) => formatKRW(v)} />
+                <Tooltip
+                  formatter={(v) => formatFullKRW(Number(v))}
+                  contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  itemStyle={{ color: '#E5E7EB' }}
+                />
+                <Bar dataKey="총이자" fill="#EF4444" name="총 이자" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="절약" fill="#10B981" name="절약 이자" radius={[4, 4, 0, 0]} />
+                <Legend wrapperStyle={{ color: '#9CA3AF', fontSize: 12 }} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* 상환 전략 요약 카드 */}
+      <div className="bg-gradient-to-r from-gray-800 to-gray-800/50 rounded-xl p-5 border border-gray-700">
+        <h3 className="text-white font-semibold mb-3">상환 전략 요약</h3>
+        <div className="space-y-3 text-sm">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
+            <p className="text-gray-300">
+              현행 유지 시 총 <span className="text-yellow-400 font-semibold">{formatKRW(scenarios[0]?.totalInterest || 0)}</span>의
+              이자를 지불하게 됩니다.
+            </p>
+          </div>
+          {scenarios.length > 1 && scenarios[1].monthlySaved > 0 && (
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <p className="text-gray-300">
+                월 50만원만 추가 상환해도 <span className="text-emerald-400 font-semibold">{formatKRW(scenarios[1].monthlySaved)}</span>의
+                이자를 절약하고, 완납을 <span className="text-emerald-400 font-semibold">
+                  {scenarios[1].timeSavedMonths > 0
+                    ? `${Math.floor(scenarios[1].timeSavedMonths / 12)}년 ${scenarios[1].timeSavedMonths % 12}개월`
+                    : '0개월'}
+                </span> 앞당길 수 있습니다.
+              </p>
+            </div>
+          )}
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 w-2 h-2 rounded-full bg-blue-400 shrink-0" />
+            <p className="text-gray-300">
+              우선순위 1번 <span className="text-white font-medium">{repaymentOrder[0]?.name}</span>이
+              가장 먼저 (<span className="text-blue-400">{repaymentOrder[0]?.completionDate}</span>) 완납 예정입니다.
+            </p>
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+            <p className="text-gray-300">
+              금리가 가장 높은 대출을 먼저 갚는 <span className="text-white font-medium">눈사태 전략</span>이
+              이자 절약에 가장 효과적이며, 현재 우선순위 설정은 이 전략에 부합합니다.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
