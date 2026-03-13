@@ -20,9 +20,12 @@ export interface ScenarioResult {
   label: string;
   description: string;
   totalInterest: number;
+  totalPenalty: number;         // 총 중도상환수수료
   completionDate: string;
   monthlySaved: number;
   timeSavedMonths: number;
+  totalMonthlyPayment: number;  // 월 총 납부액 (기본 상환 + 추가 상환)
+  maxMonths: number;            // 완납까지 총 개월 수
   timeline: TimelineEvent[];    // 각 대출 완납 이벤트
 }
 
@@ -82,6 +85,10 @@ interface SimLoan {
   priority: number;
   paidOff: boolean;
   paidOffMonth: number;
+  // 중도상환수수료
+  prepayPenaltyRate: number;   // 수수료율 (0.0065 = 0.65%)
+  penaltyTotalMonths: number;  // 수수료 적용 총 기간 (36개월)
+  penaltyMonthsLeft: number;   // 남은 수수료 적용 개월
 }
 
 /**
@@ -114,15 +121,21 @@ function estimateGraceRemaining(
 export function simulateRepayment(
   debts: Debt[],
   extraMonthly: number,
-  baseDate: Date = new Date()
+  baseDate: Date = new Date(),
+  useSnowball: boolean = true
 ): {
   totalInterest: number;
+  totalPenalty: number;
   maxMonths: number;
   completionDate: Date;
   timeline: TimelineEvent[];
   loans: SimLoan[];
 } {
   // 대출별 시뮬레이션 상태 초기화
+  const loanStart = new Date(2026, 0, 1);
+  const monthsFromStart = (baseDate.getFullYear() - loanStart.getFullYear()) * 12 +
+    (baseDate.getMonth() - loanStart.getMonth());
+
   const loans: SimLoan[] = debts.map(d => {
     const terms = parseTerms(d.terms);
     const graceLeft = estimateGraceRemaining(d, terms, baseDate);
@@ -132,6 +145,13 @@ export function simulateRepayment(
     // (거치기간 동안 이자만 내므로 원금 = 현재 잔액 그대로)
     const scheduledPayment = terms.repaymentMonths > 0
       ? calcAmortization(d.remaining, d.interestRate, terms.repaymentMonths)
+      : 0;
+
+    // 중도상환수수료: 주택담보대출만 적용 (0.65%, 3년, 잔여기간 비례 감소)
+    const hasPenalty = d.name.includes('주택담보');
+    const penaltyTotalMonths = 36;
+    const penaltyMonthsLeft = hasPenalty
+      ? Math.max(penaltyTotalMonths - monthsFromStart, 0)
       : 0;
 
     return {
@@ -145,10 +165,14 @@ export function simulateRepayment(
       priority: d.priority,
       paidOff: false,
       paidOffMonth: 0,
+      prepayPenaltyRate: hasPenalty ? 0.0065 : 0,
+      penaltyTotalMonths: hasPenalty ? penaltyTotalMonths : 0,
+      penaltyMonthsLeft,
     };
   });
 
   let totalInterest = 0;
+  let totalPenalty = 0;
   let month = 0;
   const maxIter = 600;
   const timeline: TimelineEvent[] = [];
@@ -160,8 +184,8 @@ export function simulateRepayment(
     // 1단계: 각 대출 기본 상환
     for (const loan of loans) {
       if (loan.paidOff) {
-        // 이미 완납된 대출의 상환액은 snowball로 누적
-        snowballExtra += loan.scheduledPayment;
+        // 이미 완납된 대출의 상환액은 snowball로 누적 (옵션)
+        if (useSnowball) snowballExtra += loan.scheduledPayment;
         continue;
       }
 
@@ -201,21 +225,41 @@ export function simulateRepayment(
       }
     }
 
-    // 2단계: 추가 상환 + snowball 적용 (우선순위 순)
+    // 2단계: 추가 상환 + snowball 적용 (우선순위 순, 거치/상환 구분 없이)
     let availableExtra = extraMonthly + snowballExtra;
     if (availableExtra > 0) {
-      // 우선순위 순으로 정렬된 미완납 대출에 추가 상환 적용
+      // 우선순위 순으로 정렬 — 거치 중이든 상환 중이든 우선순위대로
       const active = loans
-        .filter(l => !l.paidOff && l.graceLeft === 0) // 거치 중인 건 원금 상환 불가
+        .filter(l => !l.paidOff)
         .sort((a, b) => a.priority - b.priority);
 
       for (const loan of active) {
         if (availableExtra <= 0) break;
-        const payment = Math.min(availableExtra, loan.balance);
-        loan.balance -= payment;
-        availableExtra -= payment;
 
-        if (loan.balance <= 0) {
+        // 중도상환수수료 계산: 수수료 = 중도상환금액 × 수수료율 × (잔존개월/대출기간)
+        // 수수료가 있으면 지불액 중 일부가 수수료로 빠져 실효 원금 상환이 줄어듦
+        let effectivePayment: number;
+        let penalty = 0;
+
+        const gross = Math.min(availableExtra, loan.balance * 1.01); // 약간 여유 (수수료 감안)
+        if (loan.prepayPenaltyRate > 0 && loan.penaltyMonthsLeft > 0) {
+          const currentRate = loan.prepayPenaltyRate * (loan.penaltyMonthsLeft / loan.penaltyTotalMonths);
+          // 총 지불 = 원금상환 + 수수료, 수수료 = 원금상환 × currentRate
+          // 총 지불 = 원금상환 × (1 + currentRate)
+          // 원금상환 = 총 지불 / (1 + currentRate)
+          const maxPrincipal = Math.min(gross / (1 + currentRate), loan.balance);
+          effectivePayment = maxPrincipal;
+          penalty = effectivePayment * currentRate;
+          availableExtra -= (effectivePayment + penalty);
+        } else {
+          effectivePayment = Math.min(gross, loan.balance);
+          availableExtra -= effectivePayment;
+        }
+
+        loan.balance -= effectivePayment;
+        totalPenalty += penalty;
+
+        if (loan.balance <= 100) { // 부동소수점 오차 허용
           loan.balance = 0;
           loan.paidOff = true;
           loan.paidOffMonth = month;
@@ -227,39 +271,20 @@ export function simulateRepayment(
             freedPayment: Math.round(loan.scheduledPayment),
           });
         }
+
+        if (availableExtra <= 0) break;
       }
+    }
 
-      // 거치 중인 대출에도 추가상환 가능 (원금 직접 갚기)
-      if (availableExtra > 0) {
-        const graceLoans = loans
-          .filter(l => !l.paidOff && l.graceLeft > 0)
-          .sort((a, b) => a.priority - b.priority);
-
-        for (const loan of graceLoans) {
-          if (availableExtra <= 0) break;
-          const payment = Math.min(availableExtra, loan.balance);
-          loan.balance -= payment;
-          availableExtra -= payment;
-
-          if (loan.balance <= 0) {
-            loan.balance = 0;
-            loan.paidOff = true;
-            loan.paidOffMonth = month;
-            timeline.push({
-              month,
-              date: formatMonth(addMonths(baseDate, month)),
-              debtName: loan.name,
-              event: 'completed',
-              freedPayment: Math.round(loan.scheduledPayment),
-            });
-          }
-        }
-      }
+    // 중도상환수수료 잔여기간 차감
+    for (const loan of loans) {
+      if (loan.penaltyMonthsLeft > 0) loan.penaltyMonthsLeft--;
     }
   }
 
   return {
     totalInterest: Math.round(totalInterest),
+    totalPenalty: Math.round(totalPenalty),
     maxMonths: month,
     completionDate: addMonths(baseDate, month),
     timeline,
@@ -277,7 +302,8 @@ export function calcDebtProjections(
   _payments: DebtPayment[],
   baseDate: Date = new Date()
 ): DebtProjection[] {
-  const result = simulateRepayment(debts, 0, baseDate);
+  // snowball 없이 각 대출의 순수 스케줄 기준 프로젝션
+  const result = simulateRepayment(debts, 0, baseDate, false);
 
   return debts.map(debt => {
     const terms = parseTerms(debt.terms);
@@ -331,6 +357,24 @@ export function calcDebtProjections(
 }
 
 /**
+ * 초기 월 납부 총액 계산 (거치 중이면 이자만, 상환기면 원리금균등 + 추가상환)
+ */
+function calcInitialMonthlyTotal(debts: Debt[], extraMonthly: number, baseDate: Date): number {
+  let total = 0;
+  for (const d of debts) {
+    const terms = parseTerms(d.terms);
+    const graceLeft = estimateGraceRemaining(d, terms, baseDate);
+    const monthlyRate = d.interestRate / 100 / 12;
+    if (graceLeft > 0) {
+      total += d.remaining * monthlyRate; // 이자만
+    } else if (terms.repaymentMonths > 0) {
+      total += calcAmortization(d.remaining, d.interestRate, terms.repaymentMonths);
+    }
+  }
+  return Math.round(total + extraMonthly);
+}
+
+/**
  * 시나리오 비교 (현행 + 추가상환 4가지)
  * - 현행: 거치기간 이자만 + 주담대 원리금균등 → 완납 후 snowball
  * - 추가: 위에 더해 매월 추가 상환 (우선순위 순)
@@ -342,24 +386,27 @@ export function calcEarlyPayoffScenarios(
 ): ScenarioResult[] {
   const scenarios: ScenarioResult[] = [];
 
-  // 현행 유지
-  const baseline = simulateRepayment(debts, 0, baseDate);
+  // 현행 유지 (snowball 없음 — 각 대출 독립 상환)
+  const baseline = simulateRepayment(debts, 0, baseDate, false);
   scenarios.push({
     label: '현행 유지',
-    description: '거치기간 이자 + 주담대 원리금균등, 완납 후 snowball',
+    description: '거치기간 이자 + 주담대 원리금균등 (각 대출 독립 상환)',
     totalInterest: baseline.totalInterest,
+    totalPenalty: baseline.totalPenalty,
     completionDate: formatMonth(baseline.completionDate),
     monthlySaved: 0,
     timeSavedMonths: 0,
+    totalMonthlyPayment: calcInitialMonthlyTotal(debts, 0, baseDate),
+    maxMonths: baseline.maxMonths,
     timeline: baseline.timeline,
   });
 
   // 추가 상환 시나리오들
   const extras = [
-    { amount: 500000, label: '월 50만원 추가', desc: '매월 50만원 추가 상환 (우선순위 순)' },
-    { amount: 1000000, label: '월 100만원 추가', desc: '매월 100만원 추가 상환 (우선순위 순)' },
-    { amount: 2000000, label: '월 200만원 추가', desc: '매월 200만원 추가 상환 (우선순위 순)' },
-    { amount: 3000000, label: '월 300만원 추가', desc: '매월 300만원 추가 상환 (우선순위 순)' },
+    { amount: 500000, label: '월 50만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
+    { amount: 1000000, label: '월 100만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
+    { amount: 2000000, label: '월 200만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
+    { amount: 3000000, label: '월 300만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
   ];
 
   for (const e of extras) {
@@ -368,14 +415,44 @@ export function calcEarlyPayoffScenarios(
       label: e.label,
       description: e.desc,
       totalInterest: result.totalInterest,
+      totalPenalty: result.totalPenalty,
       completionDate: formatMonth(result.completionDate),
       monthlySaved: baseline.totalInterest - result.totalInterest,
       timeSavedMonths: baseline.maxMonths - result.maxMonths,
+      totalMonthlyPayment: calcInitialMonthlyTotal(debts, e.amount, baseDate),
+      maxMonths: result.maxMonths,
       timeline: result.timeline,
     });
   }
 
   return scenarios;
+}
+
+/**
+ * 단일 시나리오 계산 (커스텀 추가 상환액)
+ */
+export function calcSingleScenario(
+  debts: Debt[],
+  extraMonthly: number,
+  baselineInterest: number,
+  baselineMonths: number,
+  baseDate: Date = new Date()
+): ScenarioResult {
+  const result = simulateRepayment(debts, extraMonthly, baseDate);
+  const amountMan = Math.round(extraMonthly / 10000);
+  const label = `월 ${amountMan}만원 추가`;
+  return {
+    label,
+    description: `추가 상환 + 완납 후 snowball 적용`,
+    totalInterest: result.totalInterest,
+    totalPenalty: result.totalPenalty,
+    completionDate: formatMonth(result.completionDate),
+    monthlySaved: baselineInterest - result.totalInterest,
+    timeSavedMonths: baselineMonths - result.maxMonths,
+    totalMonthlyPayment: calcInitialMonthlyTotal(debts, extraMonthly, baseDate),
+    maxMonths: result.maxMonths,
+    timeline: result.timeline,
+  };
 }
 
 /**
@@ -396,6 +473,170 @@ export function calcRepaymentOrder(
       priority: p.priority,
       graceMonthsLeft: p.graceMonthsLeft,
     }));
+}
+
+// ─── 월별 상환 스케줄 ───
+
+export interface LoanMonthlyDetail {
+  name: string;
+  principalPaid: number;
+  interestPaid: number;
+  penaltyPaid: number;
+  balance: number;
+}
+
+export interface MonthlyScheduleRow {
+  month: number;
+  date: string;
+  loans: LoanMonthlyDetail[];
+  totalPrincipalPaid: number;
+  totalInterestPaid: number;
+  totalPenaltyPaid: number;
+  totalPayment: number;
+  totalRemainingDebt: number;
+  repaymentRate: number;
+  debtRatio: number;
+  equityRate: number;
+  netWorth: number;
+}
+
+/**
+ * 시나리오별 월별 상환 스케줄 생성
+ */
+export function generateMonthlySchedule(
+  debts: Debt[],
+  extraMonthly: number,
+  useSnowball: boolean,
+  totalAssets: number,
+  apartmentValue: number,
+  baseDate: Date = new Date()
+): MonthlyScheduleRow[] {
+  const loanStart = new Date(2026, 0, 1);
+  const monthsFromStart = (baseDate.getFullYear() - loanStart.getFullYear()) * 12 +
+    (baseDate.getMonth() - loanStart.getMonth());
+  const totalOriginalPrincipal = debts.reduce((s, d) => s + d.principal, 0);
+
+  const loans = debts.map(d => {
+    const terms = parseTerms(d.terms);
+    const graceLeft = estimateGraceRemaining(d, terms, baseDate);
+    const scheduledPayment = terms.repaymentMonths > 0
+      ? calcAmortization(d.remaining, d.interestRate, terms.repaymentMonths) : 0;
+    const hasPenalty = d.name.includes('주택담보');
+    return {
+      name: d.name,
+      balance: d.remaining,
+      rate: d.interestRate / 100 / 12,
+      annualRate: d.interestRate,
+      graceLeft,
+      repaymentMonths: terms.repaymentMonths,
+      scheduledPayment,
+      priority: d.priority,
+      paidOff: false,
+      prepayPenaltyRate: hasPenalty ? 0.0065 : 0,
+      penaltyTotalMonths: hasPenalty ? 36 : 0,
+      penaltyMonthsLeft: hasPenalty ? Math.max(36 - monthsFromStart, 0) : 0,
+    };
+  });
+
+  const schedule: MonthlyScheduleRow[] = [];
+  let month = 0;
+  const mortgageIdx = loans.findIndex(l => l.name.includes('주택담보'));
+
+  while (loans.some(l => !l.paidOff) && month < 600) {
+    month++;
+    const details = loans.map(() => ({ principalPaid: 0, interestPaid: 0, penaltyPaid: 0 }));
+    let snowballExtra = 0;
+
+    // Step 1: 정기 상환
+    for (let i = 0; i < loans.length; i++) {
+      const loan = loans[i];
+      if (loan.paidOff) {
+        if (useSnowball) snowballExtra += loan.scheduledPayment;
+        continue;
+      }
+      const interest = loan.balance * loan.rate;
+      details[i].interestPaid = interest;
+
+      if (loan.graceLeft > 0) {
+        loan.graceLeft--;
+        if (loan.graceLeft === 0 && loan.repaymentMonths > 0) {
+          loan.scheduledPayment = calcAmortization(loan.balance, loan.annualRate, loan.repaymentMonths);
+        }
+      } else {
+        const principalPart = Math.min(loan.scheduledPayment - interest, loan.balance);
+        if (principalPart > 0) {
+          loan.balance -= principalPart;
+          details[i].principalPaid = principalPart;
+        }
+        if (loan.balance <= 100) { loan.balance = 0; loan.paidOff = true; }
+      }
+    }
+
+    // Step 2: 추가 상환 + snowball (우선순위 순)
+    let availableExtra = extraMonthly + snowballExtra;
+    if (availableExtra > 0) {
+      const sorted = loans
+        .map((l, i) => ({ loan: l, idx: i }))
+        .filter(x => !x.loan.paidOff)
+        .sort((a, b) => a.loan.priority - b.loan.priority);
+
+      for (const { loan, idx } of sorted) {
+        if (availableExtra <= 0) break;
+        const gross = Math.min(availableExtra, loan.balance * 1.01);
+        let effective: number, penalty = 0;
+
+        if (loan.prepayPenaltyRate > 0 && loan.penaltyMonthsLeft > 0) {
+          const rate = loan.prepayPenaltyRate * (loan.penaltyMonthsLeft / loan.penaltyTotalMonths);
+          effective = Math.min(gross / (1 + rate), loan.balance);
+          penalty = effective * rate;
+          availableExtra -= (effective + penalty);
+        } else {
+          effective = Math.min(gross, loan.balance);
+          availableExtra -= effective;
+        }
+
+        loan.balance -= effective;
+        details[idx].principalPaid += effective;
+        details[idx].penaltyPaid += penalty;
+        if (loan.balance <= 100) { loan.balance = 0; loan.paidOff = true; }
+        if (availableExtra <= 0) break;
+      }
+    }
+
+    for (const loan of loans) {
+      if (loan.penaltyMonthsLeft > 0) loan.penaltyMonthsLeft--;
+    }
+
+    // Metrics
+    const totalRemaining = loans.reduce((s, l) => s + l.balance, 0);
+    const mortgageBalance = mortgageIdx >= 0 ? loans[mortgageIdx].balance : 0;
+    const tPrincipal = details.reduce((s, d) => s + d.principalPaid, 0);
+    const tInterest = details.reduce((s, d) => s + d.interestPaid, 0);
+    const tPenalty = details.reduce((s, d) => s + d.penaltyPaid, 0);
+
+    schedule.push({
+      month,
+      date: formatMonth(addMonths(baseDate, month)),
+      loans: loans.map((l, i) => ({
+        name: l.name,
+        principalPaid: Math.round(details[i].principalPaid),
+        interestPaid: Math.round(details[i].interestPaid),
+        penaltyPaid: Math.round(details[i].penaltyPaid),
+        balance: Math.round(l.balance),
+      })),
+      totalPrincipalPaid: Math.round(tPrincipal),
+      totalInterestPaid: Math.round(tInterest),
+      totalPenaltyPaid: Math.round(tPenalty),
+      totalPayment: Math.round(tPrincipal + tInterest + tPenalty),
+      totalRemainingDebt: Math.round(totalRemaining),
+      repaymentRate: Number(((totalOriginalPrincipal - totalRemaining) / totalOriginalPrincipal * 100).toFixed(2)),
+      debtRatio: totalAssets > 0 ? Number((totalRemaining / totalAssets * 100).toFixed(1)) : 0,
+      equityRate: apartmentValue > 0 ? Number(((apartmentValue - mortgageBalance) / apartmentValue * 100).toFixed(1)) : 0,
+      netWorth: Math.round(totalAssets - totalRemaining),
+    });
+  }
+
+  return schedule;
 }
 
 // ─── 헬퍼 ───
