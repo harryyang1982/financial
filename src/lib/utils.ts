@@ -11,6 +11,11 @@ export function formatKRW(amount: number): string {
   return `${amount.toLocaleString()}원`;
 }
 
+// 항상 #.##억원 형태로 표시 (백만 단위 정밀도)
+export function formatKRWEok(amount: number): string {
+  return `${(amount / 100000000).toFixed(2)}억원`;
+}
+
 export function formatFullKRW(amount: number): string {
   return `₩${amount.toLocaleString()}`;
 }

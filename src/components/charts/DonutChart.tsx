@@ -7,9 +7,10 @@ import { formatKRW } from '@/lib/utils';
 interface DonutChartProps {
   data: CategorySummary[];
   title?: string;
+  valueFormatter?: (name: string, value: number) => string;
 }
 
-export default function DonutChart({ data, title = '자산 카테고리별 비중' }: DonutChartProps) {
+export default function DonutChart({ data, title = '자산 카테고리별 비중', valueFormatter }: DonutChartProps) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
 
   return (
@@ -45,7 +46,7 @@ export default function DonutChart({ data, title = '자산 카테고리별 비�
             <div key={item.name} className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
               <span className="text-gray-300 text-sm w-16">{item.name}</span>
-              <span className="text-white text-sm font-medium">{formatKRW(item.value)}</span>
+              <span className="text-white text-sm font-medium">{valueFormatter ? valueFormatter(item.name, item.value) : formatKRW(item.value)}</span>
               <span className="text-gray-400 text-xs">({((item.value / total) * 100).toFixed(1)}%)</span>
             </div>
           ))}

@@ -8,8 +8,8 @@ import LoadingSkeleton from '@/components/LoadingSkeleton';
 import RefreshButton from '@/components/RefreshButton';
 import { usePortfolio } from '@/lib/usePortfolio';
 import {
-  calcTotalValue, calcTotalInvested, calcTotalProfit, calcOverallProfitRate,
-  calcCategorySummary, calcAssetClassSummary, formatKRW, formatFullKRW,
+  calcTotalValue, calcTotalProfit, calcOverallProfitRate,
+  calcCategorySummary, calcAssetClassSummary, formatKRW, formatKRWEok, formatFullKRW,
   formatPercent, filterByCategory, getInvestmentAssets,
 } from '@/lib/utils';
 import { diagnoseMarket, MARKET_DATE } from '@/lib/market-diagnosis';
@@ -50,7 +50,7 @@ export default function Dashboard() {
           </div>
           <div className="bg-gray-800 rounded-xl px-5 py-3 border border-gray-700">
             <p className="text-gray-400 text-xs">투자 자산 (부동산 제외)</p>
-            <p className="text-2xl font-bold text-white">{formatKRW(totalValueInvestment)}</p>
+            <p className="text-2xl font-bold text-white">{formatKRWEok(totalValueInvestment)}</p>
             <p className={`text-xs ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {formatFullKRW(totalProfit)} ({formatPercent(overallRate)})
             </p>
@@ -73,15 +73,14 @@ export default function Dashboard() {
         <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-300 text-sm p-3 rounded-lg">{error}</div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <SummaryCard title="증권" value={calcTotalValue(securities)} icon="📈" color="#3B82F6" change={calcOverallProfitRate(securities)} />
+      <div className="grid grid-cols-3 gap-4">
+        <SummaryCard title="증권" value={calcTotalValue(securities)} icon="📈" color="#3B82F6" change={calcOverallProfitRate(securities)} formatter={formatKRWEok} />
         <SummaryCard title="코인" value={calcTotalValue(crypto)} icon="🪙" color="#8B5CF6" change={calcOverallProfitRate(crypto)} />
         <SummaryCard title="부동산" value={calcTotalValue(realEstate)} icon="🏠" color="#F59E0B" change={calcOverallProfitRate(realEstate)} />
-        <SummaryCard title="총 투자금액" value={calcTotalInvested(investmentAssets)} icon="💰" color="#10B981" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DonutChart data={categorySummary} title="대범주별 비중 (전체)" />
+        <DonutChart data={categorySummary} title="대범주별 비중 (전체)" valueFormatter={(name, value) => name === '증권' ? formatKRWEok(value) : formatKRW(value)} />
         <DonutChart data={assetClassSummary} title="자산대범주별 비중 (투자 자산)" />
       </div>
 

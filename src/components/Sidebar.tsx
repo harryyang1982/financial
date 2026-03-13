@@ -19,9 +19,8 @@ const navGroups: NavGroup[] = [
     title: '대시보드',
     items: [
       { href: '/', label: '대시보드', icon: '📊' },
-      { href: '/stocks', label: '증권', icon: '📈' },
+      { href: '/financial-assets', label: '금융 자산', icon: '💹' },
       { href: '/real-estate', label: '부동산', icon: '🏠' },
-      { href: '/crypto', label: '암호화폐', icon: '🪙' },
       { href: '/debts', label: '부채', icon: '💳' },
       { href: '/portfolio', label: '포트폴리오', icon: '🎯' },
     ],

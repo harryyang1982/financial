@@ -177,17 +177,25 @@ export function simulateRepayment(
   const maxIter = 600;
   const timeline: TimelineEvent[] = [];
 
+  // ── 고정 목표 월 상환액 계산 (초기 스케줄 합계 + 추가 상환액) ──
+  // extraMonthly > 0 일 때: 매월 총 납부액을 이 목표에 맞춤
+  // 스케줄 상환이 늘면 추가분 줄고, 대출 완납되면 여유분 다시 늘어남
+  let initialBaseline = 0;
+  for (const loan of loans) {
+    if (loan.graceLeft > 0) {
+      initialBaseline += loan.balance * loan.rate; // 거치: 이자만
+    } else {
+      initialBaseline += loan.scheduledPayment;    // 상환기: 원리금
+    }
+  }
+  const targetMonthly = initialBaseline + extraMonthly;
+
   while (loans.some(l => !l.paidOff) && month < maxIter) {
     month++;
-    let snowballExtra = 0; // 완납된 대출에서 풀린 상환금
 
     // 1단계: 각 대출 기본 상환
     for (const loan of loans) {
-      if (loan.paidOff) {
-        // 이미 완납된 대출의 상환액은 snowball로 누적 (옵션)
-        if (useSnowball) snowballExtra += loan.scheduledPayment;
-        continue;
-      }
+      if (loan.paidOff) continue;
 
       const interest = loan.balance * loan.rate;
       totalInterest += interest;
@@ -225,8 +233,30 @@ export function simulateRepayment(
       }
     }
 
-    // 2단계: 추가 상환 + snowball 적용 (우선순위 순, 거치/상환 구분 없이)
-    let availableExtra = extraMonthly + snowballExtra;
+    // 2단계: 추가 상환 적용
+    // extraMonthly > 0 → 고정 목표 방식: 목표 - 이번 달 스케줄 = 여유분
+    // extraMonthly = 0 && useSnowball → 완납된 대출 상환액만 snowball
+    // extraMonthly = 0 && !useSnowball → 추가 없음
+    let availableExtra = 0;
+    if (extraMonthly > 0) {
+      // 고정 목표 방식: 이번 달 활성 대출의 스케줄 합계 계산
+      let currentScheduled = 0;
+      for (const loan of loans) {
+        if (loan.paidOff) continue;
+        if (loan.graceLeft > 0) {
+          currentScheduled += loan.balance * loan.rate;
+        } else {
+          currentScheduled += loan.scheduledPayment;
+        }
+      }
+      availableExtra = Math.max(0, targetMonthly - currentScheduled);
+    } else if (useSnowball) {
+      // 기존 snowball 방식 (현행 유지 + snowball 시나리오용)
+      for (const loan of loans) {
+        if (loan.paidOff) availableExtra += loan.scheduledPayment;
+      }
+    }
+
     if (availableExtra > 0) {
       // 우선순위 순으로 정렬 — 거치 중이든 상환 중이든 우선순위대로
       const active = loans
@@ -236,17 +266,12 @@ export function simulateRepayment(
       for (const loan of active) {
         if (availableExtra <= 0) break;
 
-        // 중도상환수수료 계산: 수수료 = 중도상환금액 × 수수료율 × (잔존개월/대출기간)
-        // 수수료가 있으면 지불액 중 일부가 수수료로 빠져 실효 원금 상환이 줄어듦
         let effectivePayment: number;
         let penalty = 0;
 
-        const gross = Math.min(availableExtra, loan.balance * 1.01); // 약간 여유 (수수료 감안)
+        const gross = Math.min(availableExtra, loan.balance * 1.01);
         if (loan.prepayPenaltyRate > 0 && loan.penaltyMonthsLeft > 0) {
           const currentRate = loan.prepayPenaltyRate * (loan.penaltyMonthsLeft / loan.penaltyTotalMonths);
-          // 총 지불 = 원금상환 + 수수료, 수수료 = 원금상환 × currentRate
-          // 총 지불 = 원금상환 × (1 + currentRate)
-          // 원금상환 = 총 지불 / (1 + currentRate)
           const maxPrincipal = Math.min(gross / (1 + currentRate), loan.balance);
           effectivePayment = maxPrincipal;
           penalty = effectivePayment * currentRate;
@@ -259,7 +284,7 @@ export function simulateRepayment(
         loan.balance -= effectivePayment;
         totalPenalty += penalty;
 
-        if (loan.balance <= 100) { // 부동소수점 오차 허용
+        if (loan.balance <= 100) {
           loan.balance = 0;
           loan.paidOff = true;
           loan.paidOffMonth = month;
@@ -403,10 +428,10 @@ export function calcEarlyPayoffScenarios(
 
   // 추가 상환 시나리오들
   const extras = [
-    { amount: 500000, label: '월 50만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
-    { amount: 1000000, label: '월 100만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
-    { amount: 2000000, label: '월 200만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
-    { amount: 3000000, label: '월 300만원 추가', desc: '추가 상환 + 완납 후 snowball 적용' },
+    { amount: 500000, label: '월 50만원 추가', desc: '고정 목표 상환 — 스케줄 변동 시 추가분 자동 조절' },
+    { amount: 1000000, label: '월 100만원 추가', desc: '고정 목표 상환 — 스케줄 변동 시 추가분 자동 조절' },
+    { amount: 2000000, label: '월 200만원 추가', desc: '고정 목표 상환 — 스케줄 변동 시 추가분 자동 조절' },
+    { amount: 3000000, label: '월 300만원 추가', desc: '고정 목표 상환 — 스케줄 변동 시 추가분 자동 조절' },
   ];
 
   for (const e of extras) {
@@ -443,7 +468,7 @@ export function calcSingleScenario(
   const label = `월 ${amountMan}만원 추가`;
   return {
     label,
-    description: `추가 상환 + 완납 후 snowball 적용`,
+    description: `고정 목표 상환 — 스케줄 변동 시 추가분 자동 조절`,
     totalInterest: result.totalInterest,
     totalPenalty: result.totalPenalty,
     completionDate: formatMonth(result.completionDate),
@@ -542,18 +567,25 @@ export function generateMonthlySchedule(
   let month = 0;
   const mortgageIdx = loans.findIndex(l => l.name.includes('주택담보'));
 
+  // ── 고정 목표 월 상환액 (simulateRepayment과 동일 로직) ──
+  let schedInitialBaseline = 0;
+  for (const loan of loans) {
+    if (loan.graceLeft > 0) {
+      schedInitialBaseline += loan.balance * loan.rate;
+    } else {
+      schedInitialBaseline += loan.scheduledPayment;
+    }
+  }
+  const schedTargetMonthly = schedInitialBaseline + extraMonthly;
+
   while (loans.some(l => !l.paidOff) && month < 600) {
     month++;
     const details = loans.map(() => ({ principalPaid: 0, interestPaid: 0, penaltyPaid: 0 }));
-    let snowballExtra = 0;
 
     // Step 1: 정기 상환
     for (let i = 0; i < loans.length; i++) {
       const loan = loans[i];
-      if (loan.paidOff) {
-        if (useSnowball) snowballExtra += loan.scheduledPayment;
-        continue;
-      }
+      if (loan.paidOff) continue;
       const interest = loan.balance * loan.rate;
       details[i].interestPaid = interest;
 
@@ -572,8 +604,25 @@ export function generateMonthlySchedule(
       }
     }
 
-    // Step 2: 추가 상환 + snowball (우선순위 순)
-    let availableExtra = extraMonthly + snowballExtra;
+    // Step 2: 추가 상환 (고정 목표 방식 or snowball)
+    let availableExtra = 0;
+    if (extraMonthly > 0) {
+      let currentScheduled = 0;
+      for (const loan of loans) {
+        if (loan.paidOff) continue;
+        if (loan.graceLeft > 0) {
+          currentScheduled += loan.balance * loan.rate;
+        } else {
+          currentScheduled += loan.scheduledPayment;
+        }
+      }
+      availableExtra = Math.max(0, schedTargetMonthly - currentScheduled);
+    } else if (useSnowball) {
+      for (const loan of loans) {
+        if (loan.paidOff) availableExtra += loan.scheduledPayment;
+      }
+    }
+
     if (availableExtra > 0) {
       const sorted = loans
         .map((l, i) => ({ loan: l, idx: i }))
