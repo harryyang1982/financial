@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { signOut, useSession } from 'next-auth/react';
 
 interface NavItem {
   href: string;
@@ -38,6 +39,10 @@ const allNavItems = navGroups.flatMap((g) => g.items);
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+
+  // Don't render sidebar on login page or when not authenticated
+  if (pathname === '/login' || !session) return null;
 
   return (
     <>
@@ -60,10 +65,10 @@ export default function Sidebar() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:flex-col md:w-56 bg-gray-900 border-r border-gray-700 min-h-screen p-4">
         <div className="mb-8">
-          <h1 className="text-xl font-bold text-white">💰 자산관리</h1>
+          <h1 className="text-xl font-bold text-white">자산관리</h1>
           <p className="text-xs text-gray-400 mt-1">Personal Finance Dashboard</p>
         </div>
-        <nav className="flex flex-col gap-1">
+        <nav className="flex-1 flex flex-col gap-1">
           {navGroups.map((group) => (
             <div key={group.title} className="mb-4">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-2">
@@ -86,6 +91,19 @@ export default function Sidebar() {
             </div>
           ))}
         </nav>
+
+        {/* Logout */}
+        <div className="mt-auto pt-4 border-t border-gray-700">
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs text-gray-400 truncate">{session.user?.name}</span>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+            >
+              로그아웃
+            </button>
+          </div>
+        </div>
       </aside>
     </>
   );
