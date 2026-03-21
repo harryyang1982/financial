@@ -130,11 +130,19 @@ export default function DebtsPage() {
             </div>
           </div>
           <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-            <p className="text-gray-400 text-xs">아파트 지분율(매매가 대비)</p>
-            <p className="text-xl font-bold text-green-400">{debtSummary.equityRate.toFixed(1)}%</p>
-            <div className="mt-2 bg-gray-700 rounded-full h-2">
-              <div className="bg-green-400 h-2 rounded-full" style={{ width: `${Math.min(debtSummary.equityRate, 100)}%` }} />
-            </div>
+            <p className="text-gray-400 text-xs">아파트 지분율(현재 시세 기준)</p>
+            {(() => {
+              const mortgageRemaining = data.debts.filter(d => d.name.includes('주택담보')).reduce((s, d) => s + d.remaining, 0);
+              const eqRate = apartmentValue > 0 ? ((apartmentValue - mortgageRemaining) / apartmentValue) * 100 : 0;
+              return (
+                <>
+                  <p className="text-xl font-bold text-green-400">{eqRate.toFixed(1)}%</p>
+                  <div className="mt-2 bg-gray-700 rounded-full h-2">
+                    <div className="bg-green-400 h-2 rounded-full" style={{ width: `${Math.min(eqRate, 100)}%` }} />
+                  </div>
+                </>
+              );
+            })()}
           </div>
           <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
             <p className="text-gray-400 text-xs">자본 (상환 + 자기자본)</p>

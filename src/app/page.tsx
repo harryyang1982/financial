@@ -129,15 +129,20 @@ export default function Dashboard() {
       </Link>
 
       {/* 부채 & 지분 요약 */}
-      {data.debtSummary && (
+      {data.debtSummary && (() => {
+        const aptValue = realEstate.reduce((s, a) => s + a.currentValue, 0);
+        const mortgageRemaining = data.debts.filter(d => d.name.includes('주택담보')).reduce((s, d) => s + d.remaining, 0);
+        const equityRateByMarket = aptValue > 0 ? ((aptValue - mortgageRemaining) / aptValue) * 100 : 0;
+        const equityAmount = aptValue - mortgageRemaining;
+        return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-            <p className="text-gray-400 text-xs">아파트 지분율</p>
-            <p className="text-xl font-bold text-green-400">{data.debtSummary.equityRate.toFixed(1)}%</p>
+            <p className="text-gray-400 text-xs">아파트 지분율(현재 시세 기준)</p>
+            <p className="text-xl font-bold text-green-400">{equityRateByMarket.toFixed(1)}%</p>
             <div className="mt-2 bg-gray-700 rounded-full h-2">
-              <div className="bg-green-400 h-2 rounded-full" style={{ width: `${Math.min(data.debtSummary.equityRate, 100)}%` }} />
+              <div className="bg-green-400 h-2 rounded-full" style={{ width: `${Math.min(equityRateByMarket, 100)}%` }} />
             </div>
-            <p className="text-gray-400 text-xs mt-1">자본 {formatKRW(data.debtSummary.equity)}</p>
+            <p className="text-gray-400 text-xs mt-1">자본 {formatKRW(equityAmount)}</p>
           </div>
           <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
             <p className="text-gray-400 text-xs">부채 상환율</p>
@@ -156,7 +161,8 @@ export default function Dashboard() {
             <p className="text-xl font-bold text-yellow-400">{((data.debtSummary.remainingDebt / totalValueAll) * 100).toFixed(1)}%</p>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
