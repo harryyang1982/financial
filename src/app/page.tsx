@@ -12,11 +12,13 @@ import {
   calcCategorySummary, calcAssetClassSummary, formatKRW, formatKRWEok, formatFullKRW,
   formatPercent, filterByCategory, getInvestmentAssets,
 } from '@/lib/utils';
-import { diagnoseMarket, MARKET_DATE } from '@/lib/market-diagnosis';
+import { diagnoseMarket } from '@/lib/market-diagnosis';
+import { useMarket } from '@/lib/useMarket';
 
 export default function Dashboard() {
   const { data, loading, error, refresh } = usePortfolio();
-  const diagnosis = useMemo(() => diagnoseMarket(), []);
+  const { market } = useMarket();
+  const diagnosis = useMemo(() => diagnoseMarket(market), [market]);
 
   if (loading) return <LoadingSkeleton />;
 
@@ -112,7 +114,7 @@ export default function Dashboard() {
                     {diagnosis.rebalanceUrgency === 'high' ? '월간 리밸런싱' :
                      diagnosis.rebalanceUrgency === 'medium' ? '분기 리밸런싱' : '연간 리밸런싱'}
                   </span>
-                  <span className="text-gray-500 text-xs">{MARKET_DATE} 기준</span>
+                  <span className="text-gray-500 text-xs">{new Date(market.fetchedAt).toLocaleDateString('ko-KR')} 기준</span>
                 </div>
                 <p className="text-white text-sm mt-0.5">
                   추천: <span className="font-medium">{diagnosis.recommendedName}</span>

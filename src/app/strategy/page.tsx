@@ -3,87 +3,14 @@
 import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { usePortfolio } from '@/lib/usePortfolio';
+import { useMarket } from '@/lib/useMarket';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
 import RefreshButton from '@/components/RefreshButton';
 import { formatKRW, formatFullKRW, getInvestmentAssets, calcTotalValue, ASSET_CLASS_COLORS } from '@/lib/utils';
 import { Asset } from '@/lib/types';
-import { diagnoseMarket, MARKET_DATE } from '@/lib/market-diagnosis';
+import { diagnoseMarket } from '@/lib/market-diagnosis';
 
-// ── 시황 지표 ──────────────────────────────────────────────
-interface MarketIndicator {
-  name: string;
-  value: string;
-  trend: 'up' | 'down' | 'stable';
-  signal: 'positive' | 'neutral' | 'caution' | 'danger';
-  detail: string;
-}
-
-const MARKET_INDICATORS: MarketIndicator[] = [
-  {
-    name: 'WTI 유가',
-    value: '$87~95/bbl',
-    trend: 'up',
-    signal: 'danger',
-    detail: '이란-미국 갈등으로 호르무즈 해협 위기. 3Q $80 이하 전망이나 지정학 불확실성 지속.',
-  },
-  {
-    name: '금 가격',
-    value: '$5,141/oz',
-    trend: 'up',
-    signal: 'caution',
-    detail: '사상 최고가. 안전자산 수요 급증. 기저 불확실성 반영.',
-  },
-  {
-    name: '미국 CPI',
-    value: '2.4%',
-    trend: 'stable',
-    signal: 'caution',
-    detail: '2월 기준. Fed 목표 2% 상회. 유가 급등 반영 전이라 상방 압력 잠재.',
-  },
-  {
-    name: '한국 CPI',
-    value: '2.0%',
-    trend: 'stable',
-    signal: 'neutral',
-    detail: '2월 기준. 물가 안정 구간이나 유가 전이 효과 모니터링 필요.',
-  },
-  {
-    name: '미국 금리',
-    value: '3.50~3.75%',
-    trend: 'stable',
-    signal: 'neutral',
-    detail: 'Fed 동결 지속. 인하 기대 후퇴. 인플레 재발 시 인상 가능성도 논의.',
-  },
-  {
-    name: '한국 금리',
-    value: '2.50%',
-    trend: 'stable',
-    signal: 'neutral',
-    detail: '5회 연속 동결. GDP 2.0% 성장 전망. 완화적 기조 유지.',
-  },
-  {
-    name: 'S&P 500',
-    value: 'YTD -0.2%',
-    trend: 'stable',
-    signal: 'neutral',
-    detail: 'Forward PE 21.8 (5년 평균 20.0 상회). EPS 성장 14~15% 전망. 밸류 부담.',
-  },
-  {
-    name: 'KOSPI',
-    value: 'YTD +47%',
-    trend: 'up',
-    signal: 'caution',
-    detail: '반도체 랠리 후 -12% 급락. 이란 갈등 충격. 단기 변동성 확대.',
-  },
-  {
-    name: 'USD/KRW',
-    value: '1,466원',
-    trend: 'up',
-    signal: 'caution',
-    detail: '변동성 확대. 3월 초 1,498 고점 기록. 강달러 지속 시 환차손 리스크.',
-  },
-];
-
+// ── 시황 표시 스타일 ─────────────────────────────────────
 const SIGNAL_COLORS: Record<string, string> = {
   positive: 'text-green-400',
   neutral: 'text-blue-400',
@@ -234,10 +161,12 @@ function calcCurrentWeightsByCountry(assets: Asset[]): Record<string, { value: n
 // ── 메인 컴포넌트 ──────────────────────────────────────────
 export default function StrategyPage() {
   const { data, loading, refresh } = usePortfolio();
-  const diagnosis = useMemo(() => diagnoseMarket(), []);
-  const [selectedId, setSelectedId] = useState(diagnosis.recommendedId);
+  const { market, marketLoading, refreshMarket } = useMarket();
+  const diagnosis = useMemo(() => diagnoseMarket(market), [market]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const scenario = SCENARIOS.find((s) => s.id === selectedId)!;
+  const activeId = selectedId ?? diagnosis.recommendedId;
+  const scenario = SCENARIOS.find((s) => s.id === activeId)!;
   const currentWeights = useMemo(() => calcCurrentWeightsByCountry(data.assets), [data.assets]);
   const investmentAssets = getInvestmentAssets(data.assets);
   const totalInvestment = calcTotalValue(investmentAssets);
@@ -293,7 +222,9 @@ export default function StrategyPage() {
       });
   }, [comparisonData, investmentAssets]);
 
-  if (loading) return <LoadingSkeleton />;
+  if (loading || marketLoading) return <LoadingSkeleton />;
+
+  const fetchedDate = new Date(market.fetchedAt).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -302,7 +233,7 @@ export default function StrategyPage() {
           <h1 className="text-2xl font-bold text-white">⚙️ 포트폴리오 전략 조정</h1>
           <p className="text-gray-400 text-sm mt-1">경기 시나리오에 따른 자산 배분 전략 시뮬레이션</p>
         </div>
-        <RefreshButton onClick={refresh} loading={loading} />
+        <RefreshButton onClick={() => { refresh(); refreshMarket(); }} loading={loading || marketLoading} />
       </div>
 
       {/* ── 시황 진단 패널 ──────────────────────────────────── */}
@@ -311,23 +242,27 @@ export default function StrategyPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-white font-semibold">시황 진단</h2>
-              <p className="text-gray-500 text-xs mt-0.5">기준일 {MARKET_DATE}</p>
+              <p className="text-gray-500 text-xs mt-0.5">
+                기준일 {fetchedDate}
+                {market.source === 'live' && <span className="ml-2 text-green-400">● 실시간</span>}
+                {market.source === 'fallback' && <span className="ml-2 text-yellow-400">● 캐시 데이터</span>}
+              </p>
             </div>
             <span className="text-xs text-gray-500 bg-gray-700 px-2 py-1 rounded">
-              매주 월요일 업데이트
+              1시간 간격 자동 업데이트
             </span>
           </div>
         </div>
         <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {MARKET_INDICATORS.map((ind) => (
+          {market.indicators.map((ind) => (
             <div
-              key={ind.name}
+              key={ind.id}
               className={`p-3 rounded-lg border ${SIGNAL_BG[ind.signal]}`}
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-gray-300 text-xs font-medium">{ind.name}</span>
                 <span className={`text-xs ${SIGNAL_COLORS[ind.signal]}`}>
-                  {TREND_ICON[ind.trend]} {ind.value}
+                  {TREND_ICON[ind.trend]} {ind.displayValue}
                 </span>
               </div>
               <p className="text-gray-400 text-xs leading-relaxed">{ind.detail}</p>
@@ -368,7 +303,7 @@ export default function StrategyPage() {
                 </div>
               ))}
             </div>
-            {selectedId !== diagnosis.recommendedId && (
+            {activeId !== diagnosis.recommendedId && (
               <button
                 onClick={() => setSelectedId(diagnosis.recommendedId)}
                 className="mt-3 text-xs bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 px-3 py-1.5 rounded-lg transition-colors"
@@ -384,7 +319,7 @@ export default function StrategyPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {SCENARIOS.map((s) => {
           const isRecommended = s.id === diagnosis.recommendedId;
-          const isSelected = s.id === selectedId;
+          const isSelected = s.id === activeId;
           return (
             <button
               key={s.id}
@@ -589,7 +524,7 @@ export default function StrategyPage() {
               <div
                 key={s.id}
                 className={`p-4 rounded-lg border ${
-                  selectedId === s.id ? 'border-blue-500 bg-gray-700/50' : 'border-gray-700'
+                  activeId === s.id ? 'border-blue-500 bg-gray-700/50' : 'border-gray-700'
                 } ${isRec ? 'ring-1 ring-yellow-500/30' : ''}`}
               >
                 <div className="flex items-center gap-2 mb-3">

@@ -1,4 +1,6 @@
-// ── 시황 진단 엔진 (strategy 페이지 & 대시보드 공용) ──────────
+// ── 시황 진단 엔진 (동적 스코어링) ──────────────────────
+
+import { MarketData, MarketIndicatorData } from './market-types';
 
 export type RebalanceUrgency = 'low' | 'medium' | 'high';
 
@@ -12,8 +14,6 @@ export interface Diagnosis {
   rebalanceNote: string;
 }
 
-export const MARKET_DATE = '2026.03.12';
-
 const SCENARIO_NAMES: Record<string, string> = {
   baseline: '기본 전략 (현행 배당성장)',
   alpha: '공격적 알파 강화',
@@ -21,99 +21,109 @@ const SCENARIO_NAMES: Record<string, string> = {
   stagflation: '스태그플레이션 방어',
 };
 
-export function diagnoseMarket(): Diagnosis {
-  const scores: Record<string, number> = {
-    baseline: 0,
-    alpha: 0,
-    defensive: 0,
-    stagflation: 0,
-  };
+type Scores = { baseline: number; alpha: number; defensive: number; stagflation: number };
 
-  // 1) 유가: 급등 → stagflation/defensive 유리
-  scores.stagflation += 3;
-  scores.defensive += 2;
-  scores.baseline += 0;
-  scores.alpha -= 1;
+interface ScoringResult {
+  scores: Partial<Scores>;
+  reason?: string;
+}
 
-  // 2) 금 사상 최고: 불확실성 → defensive 유리
-  scores.defensive += 2;
-  scores.stagflation += 2;
-  scores.baseline += 0;
-  scores.alpha -= 1;
+// ── 지표별 동적 스코어링 규칙 ─────────────────────────────
+const SCORING_RULES: Record<string, (ind: MarketIndicatorData) => ScoringResult> = {
+  wti: (ind) => {
+    if (ind.value > 90) return { scores: { stagflation: 3, defensive: 2, alpha: -1 }, reason: `WTI $${ind.value.toFixed(0)}/bbl 급등 — 인플레이션 상방 압력 및 지정학 리스크` };
+    if (ind.value > 75) return { scores: { stagflation: 1, defensive: 1, baseline: 1 }, reason: `WTI $${ind.value.toFixed(0)}/bbl 상승 구간 — 물가 전이 모니터링 필요` };
+    if (ind.value > 60) return { scores: { baseline: 1, alpha: 1 }, reason: `WTI $${ind.value.toFixed(0)}/bbl 안정 — 경제 활동 부담 제한적` };
+    return { scores: { alpha: 2, baseline: 1, stagflation: -1 }, reason: `WTI $${ind.value.toFixed(0)}/bbl 저유가 — 소비 여력 확대` };
+  },
 
-  // 3) 미국 CPI 2.4% (목표 상회, 상방 압력)
-  scores.stagflation += 1;
-  scores.defensive += 1;
-  scores.baseline += 0;
-  scores.alpha -= 1;
+  gold: (ind) => {
+    if (ind.value > 4000) return { scores: { defensive: 2, stagflation: 2, alpha: -1 }, reason: `금 $${Math.round(ind.value).toLocaleString()}/oz 사상 최고가권 — 불확실성 신호` };
+    if (ind.value > 3000) return { scores: { defensive: 1, stagflation: 1 }, reason: `금 $${Math.round(ind.value).toLocaleString()}/oz 상승 — 인플레 헤지 수요` };
+    return { scores: { baseline: 1, alpha: 1 }, reason: `금 안정 구간 — 리스크 선호 양호` };
+  },
 
-  // 4) 한국 CPI 2.0% (안정)
-  scores.baseline += 1;
-  scores.defensive += 0;
+  us_cpi: (ind) => {
+    if (ind.value > 3.5) return { scores: { stagflation: 2, defensive: 1, alpha: -2 }, reason: `미국 CPI ${ind.value.toFixed(1)}% 급등 — 긴축 강화 가능성` };
+    if (ind.value > 2.5) return { scores: { stagflation: 1, defensive: 1, alpha: -1 }, reason: `미국 CPI ${ind.value.toFixed(1)}% 목표 상회 — 상방 압력` };
+    if (ind.value > 1.5) return { scores: { baseline: 1 }, reason: `미국 CPI ${ind.value.toFixed(1)}% 안정 구간` };
+    return { scores: { alpha: 1, baseline: 1, defensive: -1 }, reason: `미국 CPI ${ind.value.toFixed(1)}% 둔화 — 완화 정책 여지` };
+  },
 
-  // 5) 금리 동결 (인하 기대 후퇴)
-  scores.defensive += 1;
-  scores.baseline += 1;
-  scores.alpha -= 1;
+  kr_cpi: (ind) => {
+    if (ind.value > 3.0) return { scores: { stagflation: 1, defensive: 1 }, reason: `한국 CPI ${ind.value.toFixed(1)}% 상승 — 물가 압력` };
+    if (ind.value > 1.5) return { scores: { baseline: 1 }, reason: `한국 CPI ${ind.value.toFixed(1)}% 안정` };
+    return { scores: { alpha: 1, baseline: 1 }, reason: `한국 CPI ${ind.value.toFixed(1)}% 둔화 — 완화 여지` };
+  },
 
-  // 6) S&P 500 보합, Forward PE 21.8 (고평가)
-  scores.defensive += 1;
-  scores.baseline += 0;
-  scores.alpha -= 1;
+  us_rate: (ind) => {
+    if (ind.trend === 'up') return { scores: { defensive: 2, stagflation: 1, alpha: -1 }, reason: `미국 금리 ${ind.displayValue} 인상 기조 — 성장자산 부담` };
+    if (ind.trend === 'down') return { scores: { alpha: 2, baseline: 1 }, reason: `미국 금리 ${ind.displayValue} 인하 — 유동성 확대 기대` };
+    return { scores: { defensive: 1, baseline: 1, alpha: -1 }, reason: `미국 금리 ${ind.displayValue} 동결 — 인하 기대 후퇴` };
+  },
 
-  // 7) EPS 성장 14-15% (양호) → 완전한 침체는 아님
-  scores.baseline += 2;
-  scores.alpha += 1;
-  scores.defensive += 0;
-  scores.stagflation -= 1;
+  kr_rate: (ind) => {
+    if (ind.trend === 'up') return { scores: { defensive: 1, stagflation: 1 }, reason: `한국 금리 ${ind.displayValue} 인상` };
+    if (ind.trend === 'down') return { scores: { alpha: 1, baseline: 1 }, reason: `한국 금리 ${ind.displayValue} 인하 — 완화적 기조` };
+    return { scores: { baseline: 1 } };
+  },
 
-  // 8) KOSPI +47% YTD 후 -12% 급락 (변동성)
-  scores.defensive += 1;
-  scores.baseline += 0;
-  scores.alpha -= 1;
+  sp500: (ind) => {
+    const changePct = ((ind.value - ind.previousValue) / ind.previousValue) * 100;
+    const pe = ind.value / 270;
+    if (pe > 23) {
+      return { scores: { defensive: 1, alpha: -1 }, reason: `S&P 500 Forward PE ${pe.toFixed(1)} 고평가 — 밸류에이션 부담` };
+    }
+    if (changePct < -5) return { scores: { defensive: 2, alpha: -1 }, reason: `S&P 500 급락 ${changePct.toFixed(1)}% — 리스크 회피` };
+    if (pe < 18) return { scores: { alpha: 2, baseline: 1 }, reason: `S&P 500 Forward PE ${pe.toFixed(1)} 저평가 매력` };
+    return { scores: { baseline: 1, alpha: 1 }, reason: `S&P 500 적정 수준 — EPS 성장 양호` };
+  },
 
-  // 9) USD/KRW 1,466 (변동성 확대, 강달러)
-  scores.defensive += 1;
-  scores.stagflation += 1;
-  scores.alpha += 0;
+  kospi: (ind) => {
+    const changePct = ((ind.value - ind.previousValue) / ind.previousValue) * 100;
+    if (changePct < -5) return { scores: { defensive: 2, alpha: -1 }, reason: `KOSPI 급락 ${changePct.toFixed(1)}% — 단기 변동성 확대` };
+    if (changePct > 5) return { scores: { alpha: 1, defensive: 1 }, reason: `KOSPI 급등 ${changePct.toFixed(1)}% — 과열 주의` };
+    return { scores: { baseline: 1 } };
+  },
+
+  usdkrw: (ind) => {
+    if (ind.value > 1450) return { scores: { defensive: 1, stagflation: 1 }, reason: `USD/KRW ${Math.round(ind.value).toLocaleString()}원 — 강달러 극심, 환리스크 관리 필요` };
+    if (ind.value > 1350) return { scores: { defensive: 1 }, reason: `USD/KRW ${Math.round(ind.value).toLocaleString()}원 — 강달러 구간` };
+    if (ind.value < 1250) return { scores: { alpha: 1, baseline: 1 }, reason: `USD/KRW ${Math.round(ind.value).toLocaleString()}원 — 원화 강세, 해외 매수 유리` };
+    return { scores: { baseline: 1 } };
+  },
+};
+
+// ── 시나리오별 요약 생성 ──────────────────────────────────
+const SUMMARY_TEMPLATES: Record<string, string> = {
+  defensive: '시장 불확실성이 높은 구간입니다. 배당주·채권 비중을 높이고 기술주 추가 매수를 자제하며, KRW 자산 확대로 환리스크를 낮추는 방어적 전략이 적합합니다.',
+  stagflation: '유가·물가 동반 상승으로 스태그플레이션 신호가 감지됩니다. 원자재·인프라 실물자산 확대와 배당 방어가 핵심입니다.',
+  baseline: '펀더멘털은 양호하지만 외부 변수 불확실합니다. 현행 배당성장 올웨더 전략을 유지하며 상황 관망이 적합합니다.',
+  alpha: '기업 실적 호조와 성장 모멘텀이 지속되고 있습니다. 성장 베팅을 확대할 수 있는 환경입니다.',
+};
+
+export function diagnoseMarket(market: MarketData): Diagnosis {
+  const scores: Scores = { baseline: 0, alpha: 0, defensive: 0, stagflation: 0 };
+  const reasons: string[] = [];
+  let scoredIndicators = 0;
+
+  for (const ind of market.indicators) {
+    const rule = SCORING_RULES[ind.id];
+    if (!rule) continue;
+    const result = rule(ind);
+    scoredIndicators++;
+    for (const [key, val] of Object.entries(result.scores)) {
+      scores[key as keyof Scores] += val as number;
+    }
+    if (result.reason) reasons.push(result.reason);
+  }
 
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const topId = sorted[0][0];
   const topScore = sorted[0][1];
-  const maxPossible = 15;
+  // 동적으로 maxPossible 계산 (지표 수 × 평균 최대 점수 2)
+  const maxPossible = Math.max(scoredIndicators * 2, 1);
   const confidence = Math.min(95, Math.round((topScore / maxPossible) * 100));
-
-  const reasonMap: Record<string, string[]> = {
-    defensive: [
-      '유가 급등 + 중동 지정학 리스크로 인플레이션 상방 압력',
-      '금 가격 사상 최고가 — 시장 불확실성 신호',
-      'EPS 성장 14~15%로 양호하나 S&P 500 Forward PE 21.8 고평가 부담',
-      'Fed 금리 동결 장기화, 인하 기대 후퇴',
-      'KOSPI 급락·USD/KRW 변동성 확대로 환리스크 관리 필요',
-    ],
-    stagflation: [
-      '유가 $87~95로 급등, 인플레이션 재발 위험',
-      '미국 CPI 2.4%로 목표 상회, 유가 반영 전이라 추가 상승 가능',
-      '금 사상 최고가로 실물자산 선호 뚜렷',
-      'Fed 인상 재논의 가능성, 성장자산 부담',
-    ],
-    baseline: [
-      'EPS 성장 14~15%로 펀더멘털 양호',
-      '한국 CPI 2.0% 안정, 금리 동결로 정책 불확실성 제한적',
-      '기존 배당성장 전략의 올웨더 특성이 현 변동성에 유효',
-    ],
-    alpha: [
-      'EPS 성장률 양호, 기술주 실적 기대감 유지',
-      'AI 투자 지속으로 기술주 장기 성장 동력 존재',
-    ],
-  };
-
-  const summaryMap: Record<string, string> = {
-    defensive: '유가 급등과 지정학 불확실성이 단기 핵심 리스크. 배당주·채권 비중을 높이고 기술주 추가 매수를 자제하며, KRW 자산 확대로 환리스크를 낮추는 방어적 전략이 적합합니다.',
-    stagflation: '유가·물가 동반 상승으로 스태그플레이션 초기 신호. 원자재·인프라 실물자산 확대와 배당 방어가 핵심입니다.',
-    baseline: '펀더멘털은 양호하지만 외부 변수 불확실. 현행 배당성장 올웨더 전략을 유지하며 상황 관망이 적합합니다.',
-    alpha: '기업 실적 호조와 기술주 모멘텀이 지속. 성장 베팅을 확대할 수 있는 환경입니다.',
-  };
 
   let rebalanceUrgency: RebalanceUrgency;
   let rebalanceNote: string;
@@ -132,8 +142,8 @@ export function diagnoseMarket(): Diagnosis {
     recommendedId: topId,
     recommendedName: SCENARIO_NAMES[topId],
     confidence,
-    summary: summaryMap[topId],
-    reasons: reasonMap[topId],
+    summary: SUMMARY_TEMPLATES[topId],
+    reasons,
     rebalanceUrgency,
     rebalanceNote,
   };
