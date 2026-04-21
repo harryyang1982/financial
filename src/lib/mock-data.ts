@@ -9,13 +9,13 @@ export const mockData: PortfolioData = {
     { category: '부동산', name: '집', account: '신한', accountType: '현물', quantity: 1, avgPrice: 1200000000, investedAmount: 1200000000, currentValue: 1300000000, profit: 100000000, profitRate: 8.33, country: '한국', assetClass: '부동산', assetSubClass: '집값', currency: 'KRW', type: '현물' },
   ],
   allocationTargets: [
-    { country: '가상', assetClass: '코인', currentValue: 8000141, currentWeight: 5.2, targetWeight: 5.0, targetAmount160: 8000000, gap160: -141, targetAmount180: 9000000, gap180: 999859 },
-    { country: '미국', assetClass: '기술주', currentValue: 39665165, currentWeight: 25.6, targetWeight: 20.0, targetAmount160: 32000000, gap160: -7665165, targetAmount180: 36000000, gap180: -3665165 },
-    { country: '미국', assetClass: '배당주', currentValue: 27035378, currentWeight: 17.5, targetWeight: 22.0, targetAmount160: 35200000, gap160: 8164622, targetAmount180: 39600000, gap180: 12564622 },
+    { country: '가상', assetClass: '코인', currentValue: 8000141, currentWeight: 5.2, targetWeight: 5.0, targetAmount180: 9000000, gap180: 999859, targetAmount200: 10000000, gap200: 1999859 },
+    { country: '미국', assetClass: '기술주', currentValue: 39665165, currentWeight: 25.6, targetWeight: 20.0, targetAmount180: 36000000, gap180: -3665165, targetAmount200: 40000000, gap200: 334835 },
+    { country: '미국', assetClass: '배당주', currentValue: 27035378, currentWeight: 17.5, targetWeight: 22.0, targetAmount180: 39600000, gap180: 12564622, targetAmount200: 44000000, gap200: 16964622 },
   ],
   subAllocationTargets: [
-    { country: '가상', assetClass: '코인', assetSubClass: '비트코인', currentValue: 6162337, currentWeight: 4.0, targetWeight: 3.85, targetAmount160: 6160000, gap160: -2337, targetAmount180: 6930000 },
-    { country: '가상', assetClass: '코인', assetSubClass: '알트코인', currentValue: 1837804, currentWeight: 1.2, targetWeight: 1.2, targetAmount160: 1840000, gap160: 2196, targetAmount180: 2070000 },
+    { country: '가상', assetClass: '코인', assetSubClass: '비트코인', currentValue: 6162337, currentWeight: 4.0, targetWeight: 3.85, targetAmount180: 6930000, gap180: 767663, targetAmount200: 7700000 },
+    { country: '가상', assetClass: '코인', assetSubClass: '알트코인', currentValue: 1837804, currentWeight: 1.2, targetWeight: 1.2, targetAmount180: 2160000, gap180: 322196, targetAmount200: 2400000 },
   ],
   growthRecords: [
     { year: '2027', returnRate: 10, amount: 203111806, contribution: 30000000, inflation: 3, presentValue: 197572393, dividendIncome: 3454932, dividendReinvest: 206566737, withdrawal: 0 },

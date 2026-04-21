@@ -34,11 +34,11 @@ export default function ProjectionsPage() {
 
   // 리밸런싱 우선순위: 조정 금액이 큰 순서
   const rebalancePriority = [...targets]
-    .filter((t) => Math.abs(t.gap160) > 100000)
-    .sort((a, b) => b.gap160 - a.gap160);
+    .filter((t) => Math.abs(t.gap180) > 100000)
+    .sort((a, b) => b.gap180 - a.gap180);
 
-  const buyTargets = rebalancePriority.filter((t) => t.gap160 > 0);
-  const sellTargets = rebalancePriority.filter((t) => t.gap160 < 0);
+  const buyTargets = rebalancePriority.filter((t) => t.gap180 > 0);
+  const sellTargets = rebalancePriority.filter((t) => t.gap180 < 0);
 
   // 연간 투입금 추이
   const contributionData = growthRecords
@@ -150,7 +150,7 @@ export default function ProjectionsPage() {
                     <p className="text-gray-400 text-xs">{t.currentWeight.toFixed(1)}% → {t.targetWeight.toFixed(1)}%</p>
                   </div>
                 </div>
-                <span className="text-green-400 font-medium text-sm">{formatFullKRW(t.gap160)}</span>
+                <span className="text-green-400 font-medium text-sm">{formatFullKRW(t.gap180)}</span>
               </div>
             ))}
           </div>
@@ -173,7 +173,7 @@ export default function ProjectionsPage() {
                     <p className="text-gray-400 text-xs">{t.currentWeight.toFixed(1)}% → {t.targetWeight.toFixed(1)}%</p>
                   </div>
                 </div>
-                <span className="text-red-400 font-medium text-sm">{formatFullKRW(t.gap160)}</span>
+                <span className="text-red-400 font-medium text-sm">{formatFullKRW(t.gap180)}</span>
               </div>
             ))}
           </div>

@@ -68,9 +68,9 @@ export default function PortfolioPage() {
               <th className="text-right p-4">현재 금액</th>
               <th className="text-right p-4">현재</th>
               <th className="text-right p-4">목표</th>
-              <th className="text-right p-4">1.6억 목표</th>
-              <th className="text-right p-4">조정</th>
               <th className="text-right p-4">1.8억 목표</th>
+              <th className="text-right p-4">조정</th>
+              <th className="text-right p-4">2.0억 목표</th>
               <th className="text-right p-4">조정</th>
               <th className="text-center p-4">방향</th>
             </tr>
@@ -90,13 +90,13 @@ export default function PortfolioPage() {
                   <td className="p-4 text-right text-white">{formatKRW(t.currentValue)}</td>
                   <td className="p-4 text-right text-gray-300">{t.currentWeight.toFixed(1)}%</td>
                   <td className="p-4 text-right text-white font-medium">{t.targetWeight.toFixed(1)}%</td>
-                  <td className="p-4 text-right text-gray-300">{formatKRW(t.targetAmount160)}</td>
-                  <td className={`p-4 text-right font-medium ${t.gap160 > 0 ? 'text-green-400' : t.gap160 < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                    {formatFullKRW(t.gap160)}
-                  </td>
                   <td className="p-4 text-right text-gray-300">{formatKRW(t.targetAmount180)}</td>
                   <td className={`p-4 text-right font-medium ${t.gap180 > 0 ? 'text-green-400' : t.gap180 < 0 ? 'text-red-400' : 'text-gray-400'}`}>
                     {formatFullKRW(t.gap180)}
+                  </td>
+                  <td className="p-4 text-right text-gray-300">{formatKRW(t.targetAmount200)}</td>
+                  <td className={`p-4 text-right font-medium ${t.gap200 > 0 ? 'text-green-400' : t.gap200 < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {formatFullKRW(t.gap200)}
                   </td>
                   <td className={`p-4 text-center font-medium ${dirColor}`}>{direction}</td>
                 </tr>
@@ -121,7 +121,7 @@ export default function PortfolioPage() {
                 <th className="text-right p-4">현재 금액</th>
                 <th className="text-right p-4">현재</th>
                 <th className="text-right p-4">목표</th>
-                <th className="text-right p-4">1.6억 목표</th>
+                <th className="text-right p-4">1.8억 목표</th>
                 <th className="text-right p-4">조정</th>
               </tr>
             </thead>
@@ -134,9 +134,9 @@ export default function PortfolioPage() {
                   <td className="p-4 text-right text-white">{formatKRW(t.currentValue)}</td>
                   <td className="p-4 text-right text-gray-300">{t.currentWeight.toFixed(1)}%</td>
                   <td className="p-4 text-right text-white">{t.targetWeight.toFixed(2)}%</td>
-                  <td className="p-4 text-right text-gray-300">{formatKRW(t.targetAmount160)}</td>
-                  <td className={`p-4 text-right font-medium ${t.gap160 > 0 ? 'text-green-400' : t.gap160 < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                    {formatFullKRW(t.gap160)}
+                  <td className="p-4 text-right text-gray-300">{formatKRW(t.targetAmount180)}</td>
+                  <td className={`p-4 text-right font-medium ${t.gap180 > 0 ? 'text-green-400' : t.gap180 < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {formatFullKRW(t.gap180)}
                   </td>
                 </tr>
               ))}

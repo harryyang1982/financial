@@ -88,10 +88,10 @@ function parseAllocationTargets(rows: string[][]): AllocationTarget[] {
       currentValue: parseKRW(row[2]),
       currentWeight: parsePercent(row[3]),
       targetWeight: parsePercent(row[4]),
-      targetAmount160: parseKRW(row[5]),
-      gap160: parseKRW(row[6]),
-      targetAmount180: parseKRW(row[7]),
-      gap180: parseKRW(row[8]),
+      targetAmount180: parseKRW(row[5]),
+      gap180: parseKRW(row[6]),
+      targetAmount200: parseKRW(row[7]),
+      gap200: parseKRW(row[8]),
     });
   }
 
@@ -120,9 +120,9 @@ function parseSubAllocationTargets(rows: string[][]): SubAllocationTarget[] {
       currentValue: parseKRW(row[3]),
       currentWeight: parsePercent(row[4]),
       targetWeight: parsePercent(row[5]),
-      targetAmount160: parseKRW(row[6]),
-      gap160: parseKRW(row[7]),
-      targetAmount180: parseKRW(row[8]),
+      targetAmount180: parseKRW(row[6]),
+      gap180: parseKRW(row[7]),
+      targetAmount200: parseKRW(row[8]),
     });
   }
 

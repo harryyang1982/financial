@@ -56,6 +56,25 @@ export default function Dashboard() {
             <p className={`text-xs ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {formatFullKRW(totalProfit)} ({formatPercent(overallRate)})
             </p>
+            {(() => {
+              const target = 180000000;
+              const progress = Math.min((totalValueInvestment / target) * 100, 100);
+              const gap = target - totalValueInvestment;
+              return (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">1.8억 목표</span>
+                    <span className="text-blue-400 font-medium">{progress.toFixed(1)}%</span>
+                  </div>
+                  <div className="mt-1 bg-gray-700 rounded-full h-1.5">
+                    <div className="bg-blue-400 h-1.5 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                  <p className="text-gray-500 text-[11px] mt-1">
+                    {gap > 0 ? `남은 금액 ${formatFullKRW(gap)}` : `목표 초과 달성 +${formatFullKRW(-gap)}`}
+                  </p>
+                </div>
+              );
+            })()}
           </div>
           {data.debts.length > 0 && (() => {
             const totalDebt = data.debts.reduce((s, d) => s + d.remaining, 0);

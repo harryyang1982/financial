@@ -30,10 +30,10 @@ export interface AllocationTarget {
   currentValue: number;    // 현재가
   currentWeight: number;   // 현재 비중 (%)
   targetWeight: number;    // 목표 비중 (%)
-  targetAmount160: number; // 1.6억 기준 목표
-  gap160: number;          // 1.6억 기준 추가 금액
   targetAmount180: number; // 1.8억 기준 목표
   gap180: number;          // 1.8억 기준 추가 금액
+  targetAmount200: number; // 2.0억 기준 목표
+  gap200: number;          // 2.0억 기준 추가 금액
 }
 
 // 포트폴리오 비중 2026 시트 - 자산중범주별 목표
@@ -44,9 +44,9 @@ export interface SubAllocationTarget {
   currentValue: number;
   currentWeight: number;
   targetWeight: number;
-  targetAmount160: number;
-  gap160: number;
   targetAmount180: number;
+  gap180: number;
+  targetAmount200: number;
 }
 
 // 성장 전망 시트
