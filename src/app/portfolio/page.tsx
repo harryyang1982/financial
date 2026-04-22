@@ -77,10 +77,10 @@ export default function PortfolioPage() {
           </thead>
           <tbody>
             {targets.map((t) => {
-              const diff = t.targetWeight - t.currentWeight;
+              const threshold = 1_000_000;
               let direction: string, dirColor: string;
-              if (diff > 1) { direction = '매수 ▲'; dirColor = 'text-green-400'; }
-              else if (diff < -1) { direction = '축소 ▼'; dirColor = 'text-red-400'; }
+              if (t.gap180 > threshold) { direction = '매수 ▲'; dirColor = 'text-green-400'; }
+              else if (t.gap180 < -threshold) { direction = '축소 ▼'; dirColor = 'text-red-400'; }
               else { direction = '적정 ●'; dirColor = 'text-blue-400'; }
 
               return (
