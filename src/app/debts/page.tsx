@@ -20,6 +20,8 @@ export default function DebtsPage() {
   const [paymentPage, setPaymentPage] = useState(0);
   const [selectedScenario, setSelectedScenario] = useState(0);
   const [schedulePage, setSchedulePage] = useState(0);
+  const [chartMode, setChartMode] = useState<'total' | 'principal'>('total');
+  const [chartMonths, setChartMonths] = useState<number>(6); // 0 = 전체
 
   // 부채 상환 프로젝션 & 시나리오 분석 (hooks must be before early return)
   const projections = useMemo(() => calcDebtProjections(data.debts, data.debtPayments), [data.debts, data.debtPayments]);
@@ -56,6 +58,22 @@ export default function DebtsPage() {
     () => generateMonthlySchedule(data.debts, scheduleConfig.extra, scheduleConfig.snowball, totalAssets, apartmentValue),
     [data.debts, scheduleConfig, totalAssets, apartmentValue]
   );
+
+  // 월별 상환액 (대출별 stacked) — 원리금 또는 원금
+  const monthlyPaymentData = useMemo(() => {
+    const map = new Map<string, { month: string; 교직원공제회: number; 사학연금: number; 주담대: number }>();
+    data.debtPayments.forEach((p) => {
+      const month = p.date.slice(0, 7); // YYYY-MM
+      const value = chartMode === 'principal' ? p.principal : p.amount;
+      const entry = map.get(month) ?? { month, 교직원공제회: 0, 사학연금: 0, 주담대: 0 };
+      if (p.category.includes('교직원')) entry.교직원공제회 += value;
+      else if (p.category.includes('사학연금')) entry.사학연금 += value;
+      else if (p.category.includes('주담대') || p.category.includes('주택담보')) entry.주담대 += value;
+      map.set(month, entry);
+    });
+    const sorted = Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month));
+    return chartMonths > 0 ? sorted.slice(-chartMonths) : sorted;
+  }, [data.debtPayments, chartMode, chartMonths]);
 
   if (loading) return <LoadingSkeleton />;
 
@@ -195,6 +213,85 @@ export default function DebtsPage() {
           </div>
         </div>
       </div>
+
+      {/* 월별 상환액 추이 (대출별 stacked) */}
+      {monthlyPaymentData.length > 0 && (
+        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-white font-semibold mb-1">
+                월별 {chartMode === 'principal' ? '원금 상환액' : '원리금 상환액'} 추이
+              </h3>
+              <p className="text-gray-400 text-xs">
+                교직원공제회 · 사학연금 · 주담대를 합산 — 막대에 마우스를 올리면 대출별 {chartMode === 'principal' ? '원금' : '납입액'}이 표시됩니다 ({monthlyPaymentData.length}개월)
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-start flex-wrap">
+              <div className="inline-flex rounded-lg border border-gray-600 bg-gray-700/40 p-0.5">
+                {[
+                  { v: 3, label: '3M' },
+                  { v: 6, label: '6M' },
+                  { v: 12, label: '1Y' },
+                  { v: 24, label: '2Y' },
+                  { v: 0, label: '전체' },
+                ].map((opt) => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setChartMonths(opt.v)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                      chartMonths === opt.v ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="inline-flex rounded-lg border border-gray-600 bg-gray-700/40 p-0.5">
+                <button
+                  onClick={() => setChartMode('total')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    chartMode === 'total' ? 'bg-blue-500/20 text-blue-300' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  원리금
+                </button>
+                <button
+                  onClick={() => setChartMode('principal')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    chartMode === 'principal' ? 'bg-emerald-500/20 text-emerald-300' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  원금만
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyPaymentData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="month" stroke="#9CA3AF" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#9CA3AF" tick={{ fontSize: 11 }} tickFormatter={(v) => formatKRW(v)} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  itemStyle={{ color: '#E5E7EB' }}
+                  labelStyle={{ color: '#F9FAFB', fontWeight: 600, marginBottom: 4 }}
+                  formatter={(v: number, name) => [v > 0 ? formatFullKRW(v) : '-', String(name)]}
+                  labelFormatter={(label, payload) => {
+                    const total = (payload ?? []).reduce((s, p) => s + (Number(p.value) || 0), 0);
+                    return `${label}  ·  합계 ${formatFullKRW(total)}`;
+                  }}
+                />
+                <Legend wrapperStyle={{ color: '#9CA3AF', fontSize: 12 }} />
+                <Bar dataKey="교직원공제회" stackId="a" fill="#EF4444" name="교직원공제회" />
+                <Bar dataKey="사학연금" stackId="a" fill="#3B82F6" name="사학연금" />
+                <Bar dataKey="주담대" stackId="a" fill="#F59E0B" name="주담대" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {/* 상환 전략 참고 */}
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
