@@ -277,7 +277,10 @@ export default function DebtsPage() {
                   contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
                   itemStyle={{ color: '#E5E7EB' }}
                   labelStyle={{ color: '#F9FAFB', fontWeight: 600, marginBottom: 4 }}
-                  formatter={(v: number, name) => [v > 0 ? formatFullKRW(v) : '-', String(name)]}
+                  formatter={(v, name) => {
+                    const num = Number(v) || 0;
+                    return [num > 0 ? formatFullKRW(num) : '-', String(name)];
+                  }}
                   labelFormatter={(label, payload) => {
                     const total = (payload ?? []).reduce((s, p) => s + (Number(p.value) || 0), 0);
                     return `${label}  ·  합계 ${formatFullKRW(total)}`;
